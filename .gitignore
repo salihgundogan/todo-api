@@ -1,0 +1,13 @@
+# Bağımlılıklar
+/node_modules
+
+# Ortam değişkenleri dosyası
+.env
+
+# Yüklenen dosyalar
+/uploads
+
+# Log dosyaları
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
