@@ -3,7 +3,7 @@ require('dotenv').config();
 const path = require('path');
 const fastify = require('fastify')({ logger: true });
 
-fastify.register(require('@fastify/multipart'), { attachFieldsToBody: true });
+fastify.register(require('@fastify/multipart'));
 
 fastify.register(require('@fastify/static'), {
     root: path.join(__dirname, 'uploads'),

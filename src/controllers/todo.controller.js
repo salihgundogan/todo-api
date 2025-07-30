@@ -1,65 +1,44 @@
-const db = require('../config/database');
-const trelloService = require('../services/trello.service');
-const { todoSchema } = require('../validation/todo.schema');
+// backend/src/controllers/todo.controller.js
+
 const fs = require('fs');
 const path = require('path');
 const util = require('util');
 const { pipeline } = require('stream');
+const db = require('../config/database');
+const trelloService = require('../services/trello.service');
+const { todoSchema } = require('../validation/todo.schema');
+
+// stream.pipeline'i Promise tabanlı hale getiriyoruz
 const pump = util.promisify(pipeline);
 
+// --- TÜM TODOLARI LİSTELEME (FİLTRELİ VE SAYFALI) ---
 const getAllTodos = async (request, reply) => {
     try {
-        // 1. Sayfalama ve Filtre Parametrelerini al
-        const {
-            page = 1, pageSize = 5, status, importance, category_id, startDate, endDate
-        } = request.query;
+        const { page = 1, pageSize = 5, status, importance, category_id, startDate, endDate } = request.query;
+        const query = db('todos').join('categories', 'todos.category_id', '=', 'categories.id');
 
-        // 2. Temel Sorguyu Oluştur (HENÜZ SELECT YOK)
-        const query = db('todos')
-            .join('categories', 'todos.category_id', '=', 'categories.id');
+        if (status) query.where('todos.status', status);
+        if (importance) query.where('todos.importance', importance);
+        if (category_id) query.where('todos.category_id', category_id);
+        if (startDate) query.where('todos.created_at', '>=', startDate);
+        if (endDate) query.where('todos.created_at', '<=', `${endDate} 23:59:59`);
 
-        // 3. Filtreleri Sorguya Ekle
-        if (status) {
-            query.where('todos.status', status);
-        }
-        if (importance) {
-            query.where('todos.importance', importance);
-        }
-        if (category_id) {
-            query.where('todos.category_id', category_id);
-        }
-        if (startDate) {
-            query.where('todos.created_at', '>=', startDate);
-        }
-        if (endDate) {
-            query.where('todos.created_at', '<=', `${endDate} 23:59:59`);
-        }
-
-        // 4. Toplam Kayıt Sayısını Al (Filtrelenmiş)
-        // Sorgunun bu aşamasında (filtreler eklenmiş ama select ve sayfalama yok) bir klon alıp sayma işlemi yapıyoruz.
         const totalQuery = query.clone();
         const totalResult = await totalQuery.count({ total: '*' }).first();
         const total = parseInt(totalResult.total, 10);
 
-        // 5. Ana Sorguya Şimdi SELECT, Sıralama ve Sayfalama Ekle
         const offset = (page - 1) * pageSize;
         query
             .select(
-                'todos.id',
-                'todos.title',
-                'todos.importance',
-                'todos.status',
-                'todos.created_at',
+                'todos.id', 'todos.title', 'todos.importance', 'todos.status',
+                'todos.image_path', 'todos.created_at',
                 'categories.name as category_name'
             )
             .limit(pageSize)
             .offset(offset)
             .orderBy('todos.created_at', 'desc');
 
-        // 6. Ana Sorguyu Çalıştır
         const todos = await query;
-
-        // 7. Sonuçları Döndür
         reply.send({
             data: todos,
             pagination: {
@@ -69,66 +48,84 @@ const getAllTodos = async (request, reply) => {
                 totalPages: Math.ceil(total / pageSize),
             }
         });
-
     } catch (error) {
-        // Hatayı logla ve kullanıcıya genel bir hata mesajı göster
-        console.error(error); // Hatanın tamamını konsolda görmek için
+        console.error(error);
         reply.status(500).send({ message: 'Internal Server Error' });
     }
 };
 
-
-// backend/src/controllers/todo.controller.js
+// --- YENİ TODO OLUŞTURMA (RESİMLİ) ---
 // backend/src/controllers/todo.controller.js
 
 const createTodo = async (request, reply) => {
-    try {
-        const parts = request.parts(); // Gelen isteğin parçalarını bir iterator olarak al
-        const body = {}; // Metin alanlarını toplamak için boş bir obje
-        let image_path = null; // Resim yolunu saklamak için boş bir değişken
+    // --- DEBUG BAŞLANGIÇ ---
+    console.log('--- YENİ TODO İSTEĞİ GELDİ ---');
+    console.log('İSTEK HEADERS:', request.headers['content-type']);
+    // --- DEBUG BİTİŞ ---
 
-        // Gelen isteğin tüm parçaları üzerinde döngüye gir
+    try {
+        const parts = request.parts();
+        const body = {};
+        let image_path = null;
+
         for await (const part of parts) {
+            // --- DEBUG BAŞLANGIÇ ---
+            // Gelen her bir parçayı detaylıca konsola yazdırıyoruz.
+            console.log('>> YENİ BİR PART GELDİ:', {
+                type: part.type,
+                fieldname: part.fieldname,
+                filename: part.filename,
+                mimetype: part.mimetype,
+                value: part.value // Sadece metin alanları için
+            });
+            // --- DEBUG BİTİŞ ---
+
             if (part.type === 'file') {
-                // EĞER PARÇA BİR DOSYA İSE:
-                // Basit dosya tipi kontrolü
                 if (part.mimetype !== 'image/png' && part.mimetype !== 'image/jpeg') {
                     return reply.status(400).send({ message: 'Only .png and .jpeg formats are allowed' });
                 }
-
                 const uniqueFilename = `${Date.now()}-${part.filename}`;
                 const savePath = path.join(__dirname, '../../uploads', uniqueFilename);
                 await pump(part.file, fs.createWriteStream(savePath));
-                image_path = uniqueFilename; // Dosya adını değişkene ata
+                image_path = uniqueFilename;
             } else {
-                // EĞER PARÇA BİR METİN ALANI İSE:
-                // Alanın adını (key) ve değerini (value) body objesine ekle
                 body[part.fieldname] = part.value;
             }
         }
 
-        // Döngü bittikten sonra, metin alanlarını Zod ile doğrula
-        // category_id string olarak geleceği için onu sayıya çevirmemiz gerekir
+        // --- DEBUG BAŞLANGIÇ ---
+        console.log('--- DÖNGÜ BİTTİ, OLUŞTURULAN BODY: ---', body);
+        // --- DEBUG BİTİŞ ---
+
         if (body.category_id) {
             body.category_id = parseInt(body.category_id, 10);
         }
 
         const validationResult = todoSchema.safeParse(body);
         if (!validationResult.success) {
+            console.log('--- ZOD HATASI, BODY:', body); // Zod'a giden veriyi görelim
             return reply.status(400).send(validationResult.error.format());
         }
         const { title, category_id, importance } = validationResult.data;
 
-        // Veritabanına kaydet
         const [newTodoId] = await db('todos').insert({ title, category_id, importance, image_path });
         const newTodo = await db('todos').where({ id: newTodoId }).first();
 
-        // Trello'ya gönder
         const trelloCardId = await trelloService.createTrelloCard(newTodo);
         if (trelloCardId) {
             await db('todos').where({ id: newTodoId }).update({ trello_card_id: trelloCardId });
             newTodo.trello_card_id = trelloCardId;
+
+            // --- YENİ EKLENEN KISIM BAŞLANGIÇ ---
+            // Eğer bir resim yüklendiyse, onun URL'ini Trello'ya eklenti olarak gönder
+            if (image_path) {
+                // .env dosyasındaki temel adresi ve resim adını birleştirerek tam bir URL oluştur
+                const imageUrl = `${process.env.APP_BASE_URL}/uploads/${image_path}`;
+                await trelloService.addAttachmentToCard(trelloCardId, imageUrl);
+            }
+            // --- YENİ EKLENEN KISIM BİTİŞ ---
         }
+
 
         reply.status(201).send(newTodo);
     } catch (error) {
@@ -137,46 +134,17 @@ const createTodo = async (request, reply) => {
     }
 };
 
-
-const deleteTodo = async (request, reply) => {
-    try {
-        const { id } = request.params;
-
-        // -- TRELLO ENTEGRASYONU BAŞLANGIÇ --
-        // Silmeden önce todo'yu bulup Trello kart ID'sini alıyoruz
-        const todoToDelete = await db('todos').where({ id }).first();
-        if (todoToDelete && todoToDelete.trello_card_id) {
-            await trelloService.deleteTrelloCard(todoToDelete.trello_card_id);
-        }
-        // -- TRELLO ENTEGRASYONU BİTİŞ --
-
-        const deletedCount = await db('todos').where({ id }).del();
-        if (deletedCount === 0) {
-            return reply.status(404).send({ message: 'Todo not found' });
-        }
-        reply.status(204).send();
-    } catch (error) {
-        console.error(error);
-        reply.status(500).send({ message: 'Internal Server Error' });
-    }
-};
-
-
-// YENİ FONKSİYON
+// --- TODO GÜNCELLEME ---
 const updateTodo = async (request, reply) => {
-    // --- ZOD VALIDATION BAŞLANGIÇ ---
-    const validationResult = todoSchema.safeParse(request.body);
-    if (!validationResult.success) {
-        return reply.status(400).send(validationResult.error.format());
-    }
-    // --- ZOD VALIDATION BİTİŞ ---
-
     try {
+        const validationResult = todoSchema.safeParse(request.body);
+        if (!validationResult.success) {
+            return reply.status(400).send(validationResult.error.format());
+        }
+
         const { id } = request.params;
-        // Doğrulamadan geçen temiz veriyi kullanıyoruz
         const { title, category_id, importance } = validationResult.data;
 
-        // ... (geri kalan kod aynı)
         const updatedCount = await db('todos').where({ id }).update({ title, category_id, importance, updated_at: new Date() });
         if (updatedCount === 0) {
             return reply.status(404).send({ message: 'Todo not found' });
@@ -194,84 +162,84 @@ const updateTodo = async (request, reply) => {
     }
 };
 
+// --- TODO SİLME ---
+const deleteTodo = async (request, reply) => {
+    try {
+        const { id } = request.params;
+        const todoToDelete = await db('todos').where({ id }).first();
 
-// YENİ FONKSİYON
+        if (todoToDelete && todoToDelete.trello_card_id) {
+            await trelloService.deleteTrelloCard(todoToDelete.trello_card_id);
+        }
+
+        const deletedCount = await db('todos').where({ id }).del();
+        if (deletedCount === 0) {
+            return reply.status(404).send({ message: 'Todo not found' });
+        }
+        reply.status(204).send();
+    } catch (error) {
+        console.error(error);
+        reply.status(500).send({ message: 'Internal Server Error' });
+    }
+};
+
+// --- TODO DURUM GÜNCELLEME ---
 const updateTodoStatus = async (request, reply) => {
     try {
         const { id } = request.params;
         const { status } = request.body;
 
-        // Sadece 'tamamlandı' durumuna geçişe izin veriyoruz
         if (status !== 'tamamlandı') {
             return reply.status(400).send({ message: "Status can only be updated to 'tamamlandı'" });
         }
 
-        // Önce mevcut todo'yu bulalım
-        const currentTodo = await db('todos').where({ id: id }).first();
-
+        const currentTodo = await db('todos').where({ id }).first();
         if (!currentTodo) {
             return reply.status(404).send({ message: 'Todo not found' });
         }
-
-        // Proje kuralı: Eğer todo zaten 'tamamlandı' ise tekrar değiştirilemez.
         if (currentTodo.status === 'tamamlandı') {
             return reply.status(400).send({ message: 'Completed todo cannot be changed again' });
         }
 
-        // Durumu güncelle
-        await db('todos').where({ id: id }).update({
-            status: 'tamamlandı',
-            updated_at: new Date(),
-        });
-
-        // Güncellenmiş todo'yu al ve geri dön
-        const updatedTodo = await db('todos').where({ id: id }).first();
+        await db('todos').where({ id }).update({ status: 'tamamlandı', updated_at: new Date() });
+        const updatedTodo = await db('todos').where({ id }).first();
         reply.send(updatedTodo);
-
     } catch (error) {
         console.error(error);
         reply.status(500).send({ message: 'Internal Server Error' });
     }
 };
 
+// --- TODO ÖNEM DERECESİ GÜNCELLEME ---
 const updateTodoImportance = async (request, reply) => {
     try {
         const { id } = request.params;
         const { importance } = request.body;
 
-        // Doğrulama: Gelen önem derecesi beklenen değerlerden biri mi?
         const allowedImportances = ['düşük', 'orta', 'yüksek'];
         if (!importance || !allowedImportances.includes(importance)) {
             return reply.status(400).send({ message: 'Invalid importance value' });
         }
 
-        // Önem derecesini güncelle
-        const updatedCount = await db('todos').where({ id: id }).update({
-            importance: importance,
-            updated_at: new Date(),
-        });
-
+        const updatedCount = await db('todos').where({ id }).update({ importance, updated_at: new Date() });
         if (updatedCount === 0) {
             return reply.status(404).send({ message: 'Todo not found' });
         }
 
-        // Güncellenmiş todo'yu al ve geri dön
-        const updatedTodo = await db('todos').where({ id: id }).first();
+        const updatedTodo = await db('todos').where({ id }).first();
         reply.send(updatedTodo);
-
     } catch (error) {
         console.error(error);
         reply.status(500).send({ message: 'Internal Server Error' });
     }
 };
 
+// Tüm fonksiyonları export et
 module.exports = {
     getAllTodos,
     createTodo,
-    deleteTodo,
     updateTodo,
+    deleteTodo,
     updateTodoStatus,
     updateTodoImportance,
-
-
 };

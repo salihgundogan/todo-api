@@ -49,9 +49,21 @@ const deleteTrelloCard = async (cardId) => {
         console.error('Trello card could not be deleted:', error.response.data);
     }
 };
+const addAttachmentToCard = async (cardId, imageUrl) => {
+    try {
+        // Trello'ya, verdiğimiz URL'i bir eklenti olarak karta eklemesini söylüyoruz.
+        await axios.post(`${TRELLO_API_URL}/cards/${cardId}/attachments`, {
+            url: imageUrl,
+            ...authParams,
+        });
+    } catch (error) {
+        console.error('Could not add attachment to Trello card:', error.response.data);
+    }
+};
 
 module.exports = {
     createTrelloCard,
     updateTrelloCard,
     deleteTrelloCard,
+    addAttachmentToCard,
 };
