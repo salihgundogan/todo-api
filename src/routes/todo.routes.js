@@ -9,6 +9,8 @@ async function routes(fastify, options) {
     fastify.put('/todos/:id', todoController.updateTodo);
     fastify.patch('/todos/:id/status', todoController.updateTodoStatus);
     fastify.patch('/todos/:id/importance', todoController.updateTodoImportance);
+    fastify.get('/todos/:id', todoController.getTodoById);
+
 
 }
 

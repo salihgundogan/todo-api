@@ -3,6 +3,13 @@ require('dotenv').config();
 const path = require('path');
 const fastify = require('fastify')({ logger: true });
 
+fastify.register(require('@fastify/cors'), {
+  // ESKİ HALİ: origin: 'http://localhost:5173',
+  // YENİ HALİ:
+  origin: 'http://localhost:8080', 
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], 
+});
+
 fastify.register(require('@fastify/multipart'));
 
 fastify.register(require('@fastify/static'), {

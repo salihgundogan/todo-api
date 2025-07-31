@@ -17,7 +17,12 @@ const todoSchema = z.object({
     importance: z
         .enum(['düşük', 'orta', 'yüksek'], {
             errorMap: () => ({ message: "Importance must be 'düşük', 'orta', or 'yüksek'" })
-        })
+        }),
+    deadline: z
+    .string()
+    .optional()
+    .nullable()
+    
 });
 
 module.exports = {
