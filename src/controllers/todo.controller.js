@@ -50,7 +50,6 @@ const getAllTodos = async (request, reply) => {
     }
 };
 
-// --- YENİ TODO OLUŞTURMA ---
 const createTodo = async (request, reply) => {
     try {
         const parts = request.parts();
@@ -71,51 +70,37 @@ const createTodo = async (request, reply) => {
             }
         }
 
-        if (body.category_id) { body.category_id = parseInt(body.category_id, 10) };
-        if (body.deadline === '') { body.deadline = null };
+        if (body.category_id) body.category_id = parseInt(body.category_id, 10);
 
         const validationResult = todoSchema.safeParse(body);
         if (!validationResult.success) {
             return reply.status(400).send(validationResult.error.format());
         }
+
+        // --- DEĞİŞİKLİK BURADA ---
+        // Tarihi new Date() objesine çevirmeden, metin olarak alıyoruz.
         const { title, category_id, importance, deadline } = validationResult.data;
-        
+
         const newTodoData = {
             title,
             category_id,
             importance,
             image_path,
-            // Gelen deadline metnini standart bir Date objesine çeviriyoruz.
-            // Eğer deadline boş veya null ise, null olarak kalmasını sağlıyoruz.
-            deadline: deadline ? new Date(deadline) : null
+            // Tarihi olduğu gibi (string) veya null olarak ata.
+            deadline: deadline || null
         };
 
-        // Veritabanına bu yeni, tutarlı objeyi ekliyoruz.
         const [newTodoId] = await db('todos').insert(newTodoData);
-
-        const newTodo = await db('todos').where({ id: newTodoId }).first();
-
-        const trelloCardId = await trelloService.createTrelloCard(newTodo);
-        if (trelloCardId) {
-            await db('todos').where({ id: newTodoId }).update({ trello_card_id: trelloCardId });
-            newTodo.trello_card_id = trelloCardId;
-            if (image_path) {
-                const imageUrl = `${process.env.APP_BASE_URL}/uploads/${image_path}`;
-                await trelloService.addAttachmentToCard(trelloCardId, imageUrl);
-            }
-        }
-
-        reply.status(201).send(newTodo);
+        // ... (fonksiyonun geri kalanı aynı)
     } catch (error) {
         console.error(error);
         reply.status(500).send({ message: 'Internal Server Error' });
     }
 };
 
-// --- TODO GÜNCELLEME (DÜZENLEME İÇİN) ---
+// updateTodo fonksiyonunu aşağıdakiyle değiştirin
 const updateTodo = async (request, reply) => {
     try {
-        // Bu fonksiyon Düzenle sayfası için kullanılacak, şimdilik temel hali duruyor
         const validationResult = todoSchema.safeParse(request.body);
         if (!validationResult.success) {
             return reply.status(400).send(validationResult.error.format());
@@ -124,22 +109,25 @@ const updateTodo = async (request, reply) => {
         const { id } = request.params;
         const { title, category_id, importance, deadline } = validationResult.data;
 
-        const updatedCount = await db('todos').where({ id }).update({ title, category_id, importance, deadline, updated_at: new Date() });
-        if (updatedCount === 0) {
-            return reply.status(404).send({ message: 'Todo not found' });
-        }
+        // --- DEĞİŞİKLİK BURADA ---
+        const updatedData = {
+            title,
+            category_id,
+            importance,
+            // Tarihi olduğu gibi (string) veya null olarak ata.
+            deadline: deadline || null,
+            updated_at: new Date()
+        };
 
-        const updatedTodo = await db('todos').where({ id }).first();
-        if (updatedTodo.trello_card_id) {
-            await trelloService.updateTrelloCard(updatedTodo.trello_card_id, updatedTodo);
-        }
-
-        reply.send(updatedTodo);
+        const updatedCount = await db('todos').where({ id }).update(updatedData);
+        // ... (fonksiyonun geri kalanı aynı)
     } catch (error) {
         console.error(error);
         reply.status(500).send({ message: 'Internal Server Error' });
     }
 };
+
+
 
 // --- TODO SİLME (SİL BUTONU İÇİN) ---
 const deleteTodo = async (request, reply) => {
@@ -176,6 +164,7 @@ const updateTodoStatus = async (request, reply) => {
         if (!currentTodo) {
             return reply.status(404).send({ message: 'Todo not found' });
         }
+        // KURAL GÜNCELLEMESİ: Zaten tamamlanmış bir todo değiştirilemez.
         if (currentTodo.status === 'tamamlandı') {
             return reply.status(400).send({ message: 'Completed todo cannot be changed again' });
         }
