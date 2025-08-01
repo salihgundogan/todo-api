@@ -1,5 +1,3 @@
-// backend/src/routes/todo.routes.js
-
 const todoController = require('../controllers/todo.controller');
 
 async function routes(fastify, options) {
@@ -10,8 +8,6 @@ async function routes(fastify, options) {
     fastify.patch('/todos/:id/status', todoController.updateTodoStatus);
     fastify.patch('/todos/:id/importance', todoController.updateTodoImportance);
     fastify.get('/todos/:id', todoController.getTodoById);
-
-
 }
 
 module.exports = routes;

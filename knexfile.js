@@ -18,5 +18,4 @@ module.exports = {
             directory: './db/seeds'
         }
     }
-    // Not: Buraya daha sonra production ve staging gibi başka ortamlar da eklenebilir.
 };

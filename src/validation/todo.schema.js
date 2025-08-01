@@ -1,8 +1,4 @@
-// backend/src/validation/todo.schema.js
-
 const { z } = require('zod');
-
-// Todo oluştururken veya güncellerken kullanılacak doğrulama şeması
 const todoSchema = z.object({
     title: z
         .string({ required_error: 'Title is required' })
@@ -19,10 +15,9 @@ const todoSchema = z.object({
             errorMap: () => ({ message: "Importance must be 'düşük', 'orta', or 'yüksek'" })
         }),
     deadline: z
-    .string()
-    .optional()
-    .nullable()
-    
+        .string()
+        .optional()
+        .nullable()
 });
 
 module.exports = {
