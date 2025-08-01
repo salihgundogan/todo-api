@@ -6,7 +6,7 @@ const { z } = require('zod');
 const todoSchema = z.object({
     title: z
         .string({ required_error: 'Title is required' })
-        .min(3, { message: 'Title must be at least 3 characters long' })
+        .min(1, { message: 'Title must be at least 1 characters long' })
         .max(100, { message: 'Title must be 100 characters or less' }),
 
     category_id: z

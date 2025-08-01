@@ -14,9 +14,9 @@ const getAllTodos = async (request, reply) => {
         const { page = 1, pageSize = 5, status, importance, category_id, startDate, endDate } = request.query;
         const query = db('todos').join('categories', 'todos.category_id', '=', 'categories.id');
 
-        if (status) {query.where('todos.status', status)};
-        if (importance) {query.where('todos.importance', importance)};
-        if (category_id) {query.where('todos.category_id', category_id)};
+        if (status) { query.where('todos.status', status) };
+        if (importance) { query.where('todos.importance', importance) };
+        if (category_id) { query.where('todos.category_id', category_id) };
         if (startDate) {
             query.whereRaw('DATE(todos.deadline) >= ?', [startDate]);
         }
@@ -71,16 +71,28 @@ const createTodo = async (request, reply) => {
             }
         }
 
-        if (body.category_id) {body.category_id = parseInt(body.category_id, 10)};
-        if (body.deadline === '') {body.deadline = null};
+        if (body.category_id) { body.category_id = parseInt(body.category_id, 10) };
+        if (body.deadline === '') { body.deadline = null };
 
         const validationResult = todoSchema.safeParse(body);
         if (!validationResult.success) {
             return reply.status(400).send(validationResult.error.format());
         }
         const { title, category_id, importance, deadline } = validationResult.data;
+        
+        const newTodoData = {
+            title,
+            category_id,
+            importance,
+            image_path,
+            // Gelen deadline metnini standart bir Date objesine çeviriyoruz.
+            // Eğer deadline boş veya null ise, null olarak kalmasını sağlıyoruz.
+            deadline: deadline ? new Date(deadline) : null
+        };
 
-        const [newTodoId] = await db('todos').insert({ title, category_id, importance, deadline, image_path });
+        // Veritabanına bu yeni, tutarlı objeyi ekliyoruz.
+        const [newTodoId] = await db('todos').insert(newTodoData);
+
         const newTodo = await db('todos').where({ id: newTodoId }).first();
 
         const trelloCardId = await trelloService.createTrelloCard(newTodo);
